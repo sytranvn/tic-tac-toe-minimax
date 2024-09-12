@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from math import inf as infinity
-from random import choice
 import platform
 import time
 from os import system
@@ -21,7 +20,16 @@ board = [
     [0, 0, 0],
     [0, 0, 0],
 ]
+last_move = [-1, -1, -1]
 
+calculate_time = 0
+search_count = 0
+
+options = {
+    1: ' Minimax',
+    2: ' Alpha-Beta search'
+}
+level = 0
 
 def evaluate(state):
     """
@@ -49,20 +57,17 @@ def wins(state, player):
     :param player: a human or a computer
     :return: True if the player wins
     """
-    win_state = [
-        [state[0][0], state[0][1], state[0][2]],
-        [state[1][0], state[1][1], state[1][2]],
-        [state[2][0], state[2][1], state[2][2]],
-        [state[0][0], state[1][0], state[2][0]],
-        [state[0][1], state[1][1], state[2][1]],
-        [state[0][2], state[1][2], state[2][2]],
-        [state[0][0], state[1][1], state[2][2]],
-        [state[2][0], state[1][1], state[0][2]],
-    ]
-    if [player, player, player] in win_state:
+    n = len(state)
+    full = [player] * n
+    if full in state:
         return True
-    else:
-        return False
+    if full in [list(col) for col in zip(*state)]:
+        return True
+    if [state[i][i] for i in range(n)] == full:
+        return True
+    if [state[i][n - 1 - i] for i in range(n)] == full:
+        return True
+    return False
 
 
 def game_over(state):
@@ -80,13 +85,23 @@ def empty_cells(state):
     :param state: the state of the current board
     :return: a list of empty cells
     """
-    cells = []
+    # cells = []
+    #
+    # for x, row in enumerate(state):
+    #     for y, cell in enumerate(row):
+    #         if cell == 0:
+    #             cells.append([x, y])
+    cells = [[x, y] for x, row in enumerate(state)
+             for y, cell in enumerate(row) if cell == 0]
+    return cells
 
-    for x, row in enumerate(state):
-        for y, cell in enumerate(row):
-            if cell == 0:
-                cells.append([x, y])
 
+def neighbor_cells(state):
+    cells = [[x, y] for x, row in enumerate(state)
+             for y, cell in enumerate(row) if
+             cell == 0 and x != 0 and y != 0 and
+             x != len(state) - 1 and y != len(state) - 1
+             and (row[y-1] or row[y+1] or state[x-1][y] or state[x+1][y])]
     return cells
 
 
@@ -126,6 +141,8 @@ def minimax(state, depth, player):
     :param player: an human or a computer
     :return: a list with [the best row, best col, best score]
     """
+    global search_count
+    search_count += 1
     if player == COMP:
         best = [-1, -1, -infinity]
     else:
@@ -152,6 +169,64 @@ def minimax(state, depth, player):
     return best
 
 
+def alpha_beta_search(state, player):
+    if player is COMP:
+        move = max_value(state, -infinity, +infinity, player)
+    else:
+        move = min_value(state, -infinity, +infinity, player)
+    return move
+
+
+def min_value(state, alpha, beta, player, depth=1):
+    global search_count
+    search_count += 1
+    empties = empty_cells(state)
+    if len(empties) == 0 or game_over(state):
+        val = evaluate(state)
+        return val, -1, -1
+    # shuffle(empties)
+    score, ax, ay = +infinity, -1, -1
+    for cell in empties:
+        x, y = cell[0], cell[1]
+        state[x][y] = player
+        m, _, _ = max_value(state, alpha, beta, -player, depth + 1)
+        if m < score:
+            score = m
+            ax, ay = x, y
+        state[x][y] = 0
+        if score <= alpha:
+            return score, ax, ay
+        beta = min(beta, score)
+
+    return score, ax, ay
+
+
+def max_value(state, alpha, beta, player, depth=1):
+    """
+    @return [score, x, y]
+    """
+    global search_count
+    search_count += 1
+    empties = empty_cells(state)
+    if len(empties) == 0 or game_over(state):
+        val = evaluate(state)
+        return val, -1, -1
+    # shuffle(empties)
+    score, ax, ay = -infinity, -1, -1
+    for cell in empties:
+        x, y = cell[0], cell[1]
+        state[x][y] = player
+        m, _, _ = min_value(state, alpha, beta, -player, depth + 1)
+        if m > score:
+            score = m
+            ax, ay = x, y
+        state[x][y] = 0
+        if score >= beta:
+            return score, ax, ay
+        alpha = max(alpha, score)
+    return score, ax, ay
+
+
 def clean():
     """
     Clears the console
@@ -174,13 +249,18 @@ def render(state, c_choice, h_choice):
         +1: c_choice,
         0: ' '
     }
-    str_line = '---------------'
-
-    print('\n' + str_line)
-    for row in state:
+    print(options[level])
+    str_line = '----' * (len(state) + 1)
+    print('   ', end='')
+    for i in range(len(state)):
+        print(f'{i+1:-3} ', end='')
+    print('\n' + str_line + '-')
+    for i, row in enumerate(state):
+        print(f'{i+1:-3} ', end='')
         for cell in row:
             symbol = chars[cell]
-            print(f'| {symbol} |', end='')
+            print(f'| {symbol} ', end='')
+        print('|')
         print('\n' + str_line)
 
 
@@ -192,6 +272,7 @@ def ai_turn(c_choice, h_choice):
     :param h_choice: human's choice X or O
     :return:
     """
+    global last_move
     depth = len(empty_cells(board))
     if depth == 0 or game_over(board):
         return
@@ -199,16 +280,17 @@ def ai_turn(c_choice, h_choice):
     clean()
     print(f'Computer turn [{c_choice}]')
     render(board, c_choice, h_choice)
+    print('Calculating...')
 
-    if depth == 9:
-        x = choice([0, 1, 2])
-        y = choice([0, 1, 2])
-    else:
+    if level == 1:
         move = minimax(board, depth, COMP)
         x, y = move[0], move[1]
+    else:
+        move = alpha_beta_search(board, COMP)
+        x, y = move[1], move[2]
+    last_move = move
 
     set_move(x, y, COMP)
-    time.sleep(1)
 
 
 def human_turn(c_choice, h_choice):
@@ -224,29 +306,27 @@ def human_turn(c_choice, h_choice):
 
     # Dictionary of valid moves
     move = -1
-    moves = {
-        1: [0, 0], 2: [0, 1], 3: [0, 2],
-        4: [1, 0], 5: [1, 1], 6: [1, 2],
-        7: [2, 0], 8: [2, 1], 9: [2, 2],
-    }
 
     clean()
     print(f'Human turn [{h_choice}]')
     render(board, c_choice, h_choice)
+    print(f"search count: {search_count}")
 
-    while move < 1 or move > 9:
+    while True:
         try:
-            move = int(input('Use numpad (1..9): '))
-            coord = moves[move]
-            can_move = set_move(coord[0], coord[1], HUMAN)
+            move = input('x y: ')
+            coord = [int(c) for c in move.split()]
+            can_move = set_move(coord[0]-1, coord[1]-1, HUMAN)
 
             if not can_move:
                 print('Bad move')
                 move = -1
+            else:
+                break
         except (EOFError, KeyboardInterrupt):
             print('Bye')
             exit()
-        except (KeyError, ValueError):
+        except (IndexError, KeyError, ValueError):
             print('Bad choice')
 
 
@@ -254,16 +334,33 @@ def main():
     """
     Main function that calls all functions
     """
+    global board, calculate_time, search_count, level
     clean()
     h_choice = ''  # X or O
     c_choice = ''  # X or O
     first = ''  # if human is the first
-
+    n = 3
+    while True:
+        nstr = input('Choose board size between 3 and 10 [default 3]: ')
+        if nstr:
+            try:
+                n = int(nstr)
+            except ValueError:
+                print('Invalid number')
+                continue
+        if n > 2 and n <= 10:
+            n = int(n)
+            board = [
+                    [0 for _ in range(n)] for __ in range(n)
+            ]
+            break
     # Human chooses X or O to play
     while h_choice != 'O' and h_choice != 'X':
         try:
             print('')
-            h_choice = input('Choose X or O\nChosen: ').upper()
+            h_choice = input('Choose [X] or O\nChosen: ').upper()
+            if not h_choice:
+                h_choice = 'X'
         except (EOFError, KeyboardInterrupt):
             print('Bye')
             exit()
@@ -276,25 +373,52 @@ def main():
     else:
         c_choice = 'X'
 
-    # Human may starts first
-    clean()
-    while first != 'Y' and first != 'N':
+    # Human chooses X or O to play
+    print(
+        'Choose computer level:',
+    )
+    for k, v in options.items():
+        print(f"{k}. {v}")
+    while True:
         try:
-            first = input('First to start?[y/n]: ').upper()
+            print('')
+            level = int(input('Chosen: ').upper())
+            if level not in options:
+                raise ValueError()
+            break
         except (EOFError, KeyboardInterrupt):
             print('Bye')
             exit()
         except (KeyError, ValueError):
             print('Bad choice')
 
+    # Human may starts first
+    clean()
+    while first != 'Y' and first != 'N':
+        try:
+            first = input('First to start?[y]/n: ').upper()
+            if not first:
+                first = 'Y'
+        except (EOFError, KeyboardInterrupt):
+            print('Bye')
+            exit()
+        except (KeyError, ValueError):
+            print('Bad choice')
+
+    start = None
     # Main loop of this game
     while len(empty_cells(board)) > 0 and not game_over(board):
         if first == 'N':
+            search_count = 0
             ai_turn(c_choice, h_choice)
             first = ''
-
+        time.sleep(1. - calculate_time)
         human_turn(c_choice, h_choice)
+        start = time.time()
+        search_count = 0
         ai_turn(c_choice, h_choice)
+        end = time.time()
+        calculate_time = end-start
 
     # Game over message
     if wins(board, HUMAN):
